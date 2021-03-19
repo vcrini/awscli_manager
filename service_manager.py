@@ -66,7 +66,7 @@ if args.stop_services or args.start_services:
         service = json.load(fp)
     logging.debug(service)
     for k in service.keys():
-        if service[k] == 0:
+        if service[k] == "0":
             logging.info(
                 "skipping {} since it's at desired task 0".format(k))
             continue
@@ -83,5 +83,6 @@ if args.stop_services or args.start_services:
             logging.error(
                 "aws-cli error  '{}' error: {}".format(' '.join(cmd), e))
             raise Exception
-        logging.info("desired task set at 0 {}...".format(k))
+        logging.info(
+            "service {} set at {} desired_count ...".format(k, desired_count))
         time.sleep(args.throttle)
