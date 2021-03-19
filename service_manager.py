@@ -7,6 +7,7 @@ import logging
 import more_itertools
 import re
 import subprocess
+import sys
 import time
 parser = argparse.ArgumentParser()
 group = parser.add_mutually_exclusive_group()
@@ -20,10 +21,11 @@ parser.add_argument('--verbose', action='store_true')
 parser.add_argument('--cluster', required=True)
 args = parser.parse_args()
 fmt = '%(message)s'
+handler = logging.StreamHandler(sys.stdout)
 if args.verbose:
-    logging.basicConfig(format=fmt, level=logging.DEBUG)
+    logging.basicConfig(format=fmt, level=logging.DEBUG, handlers=(handler,))
 else:
-    logging.basicConfig(format=fmt, level=logging.INFO)
+    logging.basicConfig(format=fmt, level=logging.INFO, handlers=(handler,))
 
 if args.active_services:
     cmd = ["aws", "ecs", "list-services", "--cluster", args.cluster]
