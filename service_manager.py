@@ -16,7 +16,7 @@ group.add_argument('--stop_services',
                    help="filename containing hash with services and desired count")
 group.add_argument('--start_services',
                    help="filename containing hash with services and desired count")
-parser.add_argument('--throttle', default=0.2)
+parser.add_argument('--throttle', default=0.5)
 parser.add_argument('--verbose', action='store_true')
 parser.add_argument('--cluster', required=True)
 args = parser.parse_args()
@@ -87,4 +87,4 @@ if args.stop_services or args.start_services:
             raise Exception
         logging.info(
             "service {} set at {} desired_count ...".format(k, desired_count))
-        time.sleep(args.throttle)
+        time.sleep(int(args.throttle))
