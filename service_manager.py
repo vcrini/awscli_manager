@@ -12,10 +12,6 @@ import time
 parser = argparse.ArgumentParser()
 group = parser.add_mutually_exclusive_group()
 group.add_argument('--active_services', action='store_true')
-group.add_argument('--stop_services',
-                   help="filename containing hash with services and desired count")
-group.add_argument('--start_services',
-                   help="filename containing hash with services and desired count")
 group.add_argument('--start_pipeline_execution',
                    help="filename containing hash with pipeline names")
 parser.add_argument('--throttle', default=0.5)
@@ -66,37 +62,19 @@ if args.active_services:
         for x in list_services_desired_tasks_json['services']:
             service[x['serviceName']] = str(x['desiredCount'])
     logging.info(json.dumps(service))
-if args.stop_services or args.start_services:
-    f = args.stop_services if args.stop_services else args.start_services
-    with open(f, "r") as fp:
-        service = json.load(fp)
-    logging.debug(service)
-    for k in service.keys():
-        if service[k] == "0":
-            logging.info(
-                "skipping {} since it's at desired task 0".format(k))
-            continue
-        if args.stop_services:
-            desired_count = "0"
-        elif args.start_services:
-            desired_count = service[k]
-        cmd = ["aws", "ecs", "update-service", "--cluster",
-               args.cluster, "--service", k, "--desired-count", desired_count]
-        try:
-            result = subprocess.run(cmd, stdout=subprocess.PIPE,
-                                    stderr=subprocess.STDOUT).stdout.decode('utf-8')
-        except Exception as e:
-            logging.error(
-                "aws-cli error  '{}' error: {}".format(' '.join(cmd), e))
-            raise Exception
-        logging.info(
-            "service {} set at {} desired_count ...".format(k, desired_count))
-        time.sleep(int(args.throttle))
 if args.start_pipeline_execution:
     f = args.start_pipeline_execution
     with open(f, "r") as fp:
         service = json.load(fp)
     logging.debug(service)
+    cmd_x = ["aws", "sts", "get-caller-identity"]
+    result_x = json.loads(subprocess.run(cmd_x, stdout=subprocess.PIPE,
+                                         stderr=subprocess.STDOUT).stdout.decode('utf-8'))
+    if result_x['Account'] != "796341525871":
+        print("This is not test, quitting ...")
+        exit(0)
+    else:
+        print("This is test {}, continuing".format(result_x['Account']))
     for k in service.keys():
         # aws codepipeline start-pipeline-execution --name MyFirstPipeline
         cmd = ["aws", "codepipeline", "start-pipeline-execution", "--name", k, ]
