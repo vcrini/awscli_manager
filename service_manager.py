@@ -16,12 +16,16 @@ group.add_argument('--stop_services',
                    help="filename containing hash with services and desired count")
 group.add_argument('--start_services',
                    help="filename containing hash with services and desired count")
+group.add_argument('--start_pipeline_execution',
+                   help="filename containing hash with pipeline names")
 parser.add_argument('--throttle', default=0.5)
 parser.add_argument('--verbose', action='store_true')
-parser.add_argument('--cluster', required=True)
+parser.add_argument('--cluster')
 args = parser.parse_args()
 fmt = '%(message)s'
 handler = logging.StreamHandler(sys.stdout)
+if not args.start_pipeline_execution and args.cluster is None:
+    parser.error("--cluster is needed.")
 if args.verbose:
     logging.basicConfig(format=fmt, level=logging.DEBUG, handlers=(handler,))
 else:
@@ -87,4 +91,22 @@ if args.stop_services or args.start_services:
             raise Exception
         logging.info(
             "service {} set at {} desired_count ...".format(k, desired_count))
+        time.sleep(int(args.throttle))
+if args.start_pipeline_execution:
+    f = args.start_pipeline_execution
+    with open(f, "r") as fp:
+        service = json.load(fp)
+    logging.debug(service)
+    for k in service.keys():
+        # aws codepipeline start-pipeline-execution --name MyFirstPipeline
+        cmd = ["aws", "codepipeline", "start-pipeline-execution", "--name", k, ]
+        try:
+            result = subprocess.run(cmd, stdout=subprocess.PIPE,
+                                    stderr=subprocess.STDOUT).stdout.decode('utf-8')
+        except Exception as e:
+            logging.error(
+                "aws-cli error  '{}' error: {}".format(' '.join(cmd), e))
+            raise Exception
+        logging.info(
+            "pipeline {} starting ...".format(k))
         time.sleep(int(args.throttle))
