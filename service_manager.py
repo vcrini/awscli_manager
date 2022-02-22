@@ -1,10 +1,14 @@
 #!/usr/bin/env python3
 
 import argparse
+import copy
+# import cProfile
+# import pstats
 import itertools
 import json
 import logging
 import more_itertools
+import operator
 import re
 import subprocess
 import sys
@@ -13,6 +17,8 @@ import time
 
 def launch(cmd):
     return subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT).stdout.decode('utf-8')
+
+
 def print_error(cmd, result, ex):
     logging.error(
         "aws-cli error  '{}->{}' error: {}".format(' '.join(cmd), result, ex))
@@ -21,12 +27,14 @@ def print_error(cmd, result, ex):
 
 def show_pipeline(args):
     def multiple_in(values, name):
-        prefixes = re.split(",\s*", values)
+        prefixes = re.split(r',\s*', values)
         for x in prefixes:
-            if x in name:
+            if re.search(x, name):
                 return True
+
+    def sort_criteria(d, key):
+        return d[key]
     cmd = ["aws", "codepipeline", "list-pipelines"]
-    logging.debug(cmd)
     cmd2 = None
     statuses = []
     result = None
@@ -34,21 +42,32 @@ def show_pipeline(args):
         result = launch(cmd)
     except Exception as e:
         print_error(cmd, result, e)
-    logging.debug(result)
     list_pipelines_json = json.loads(result)
+    keys = ['status', 'stageName', 'startTime', 'lastUpdateTime']
+    keys_with_name = copy.copy(keys)
+    keys_with_name.insert(0, 'name')
+
     for x in list_pipelines_json['pipelines']:
-        if multiple_in(args.value, x['name']):
-            print(x['name'])
-            cmd2 = ["aws", "codepipeline", "list-action-executions", "--pipeline-name",
-                    x['name'], "--query", "actionExecutionDetails[0].[stageName,lastUpdateTime,status]"]
+        if multiple_in(args.value, x['name']) and not re.search(r'deploy$', x['name']):
+            cmd2 = ["aws", "codepipeline", "list-action-executions",
+                    "--pipeline-name", x['name']]
             try:
                 result = launch(cmd2)
-                statuses.append(json.loads(result))
-
+                deploy = json.loads(result)
+                filtered_deploy = {
+                    k: deploy['actionExecutionDetails'][0][k] for k in keys}
+                if not args.status or (args.status and filtered_deploy['status'] in args.status):
+                    filtered_deploy.update({'name': x['name']})
+                    statuses.append(filtered_deploy)
+            except IndexError:
+                logging.debug("Skipping because pipeline {}  contains no data: {}".format(
+                    x['name'], deploy))
             except Exception as e:
                 print_error(cmd2, result, e)
-            print(statuses)
-            time.sleep(int(args.throttle))
+            time.sleep(float(args.throttle))
+    p = [json.dumps({k: x[k] for k in keys_with_name}, indent=2) for x in sorted(
+        statuses, key=operator.itemgetter('lastUpdateTime'), reverse=args.reverse)]
+    print("[{}]".format(",".join(p)))
 
 
 def active_services(args):
@@ -62,7 +81,7 @@ def active_services(args):
         raise Exception
     logging.debug(result)
     list_services_json = json.loads(result)
-    all_services = [re.search('([^\/]+)$', x).group(1)
+    all_services = [re.search(r'([^\/]+)$', x).group(1)
                     for x in list_services_json['serviceArns']]
     grouped = more_itertools.chunked(all_services, 10)
     service = {}
@@ -85,7 +104,7 @@ def active_services(args):
 
 
 def stop_or_start(args):
-    f = args.stop_services if args.stop_services else args.start_services
+    f = args.value
     with open(f, "r") as fp:
         service = json.load(fp)
     logging.debug(service)
@@ -94,9 +113,9 @@ def stop_or_start(args):
             logging.info(
                 "skipping {} since it's at desired task 0".format(k))
             continue
-        if args.stop_services:
+        if args.action == 'stop-services':
             desired_count = "0"
-        elif args.start_services:
+        elif args.action == 'start-services':
             desired_count = service[k]
         cmd = ["aws", "ecs", "update-service", "--cluster",
                args.cluster, "--service", k, "--desired-count", desired_count]
@@ -110,7 +129,7 @@ def stop_or_start(args):
 
 
 def start_pipeline_execution(args):
-    f = args.start_pipeline_execution
+    f = args.value
     with open(f, "r") as fp:
         service = json.load(fp)
     logging.debug(service)
@@ -126,19 +145,25 @@ def start_pipeline_execution(args):
         time.sleep(int(args.throttle))
 
 
-p = argparse.ArgumentParser(add_help=False)
-p.add_argument('--throttle', default=0.5)
-p.add_argument('--verbose', action='store_true')
-p2 = argparse.ArgumentParser(add_help=False, parents=[p])
+# import pdb; pdb.set_trace()
+# p = argparse.ArgumentParser(add_help=False)
+# p.add_argument('--throttle', default=0.5)
+# p.add_argument('--verbose', action='store_true', default=False)
+p2 = argparse.ArgumentParser(add_help=False)
 p2.add_argument('--cluster', required=True)
 p3 = argparse.ArgumentParser(add_help=False)
 p3.add_argument('value')
 parser = argparse.ArgumentParser()
 parser.add_argument('--throttle', default=0.5)
+parser.add_argument('--verbose', action='store_true',)
 subparsers = parser.add_subparsers(
     help="desired action to perform", dest='action')
 pipeline_parser = subparsers.add_parser(
-    'show-pipeline', help="show current pipeline status, filtering them using prefixes separated by , ", parents=[p3, p])
+    'show-pipeline', help="show current pipeline status, filtering them using prefixes separated by , ", parents=[p3])
+pipeline_parser.add_argument(
+    '--status', choices=['InProgress', 'Succeeded', 'Failed'])
+pipeline_parser.add_argument(
+    '--reverse', action="store_true", default=False, help="to invert sorting order")
 pipeline_parser.set_defaults(func=show_pipeline)
 active_services_parser = subparsers.add_parser(
     'active-services', help="show current active_services", parents=[p2])
@@ -160,92 +185,11 @@ if args.verbose:
     logging.basicConfig(format=fmt, level=logging.DEBUG, handlers=(handler,))
 else:
     logging.basicConfig(format=fmt, level=logging.INFO, handlers=(handler,))
-args.func(args)
-exit()
-handler = logging.StreamHandler(sys.stdout)
-if not args.start_pipeline_execution and args.cluster is None:
-    parser.error("--cluster is needed.")
-if args.verbose:
-    logging.basicConfig(format=fmt, level=logging.DEBUG, handlers=(handler,))
-else:
-    logging.basicConfig(format=fmt, level=logging.INFO, handlers=(handler,))
-
-if args.active_services:
-    cmd = ["aws", "ecs", "list-services", "--cluster", args.cluster]
-    logging.debug(cmd)
-    result = None
-    try:
-        result = subprocess.run(cmd, stdout=subprocess.PIPE,
-                                stderr=subprocess.STDOUT).stdout.decode('utf-8')
-    except Exception as e:
-        logging.error("aws-cli error  '{}' error: {}".format(' '.join(cmd), e))
-        raise Exception
-    logging.debug(result)
-    list_services_json = json.loads(result)
-    all_services = [re.search('([^\/]+)$', x).group(1)
-                    for x in list_services_json['serviceArns']]
-    grouped = more_itertools.chunked(all_services, 10)
-    service = {}
-    for g in grouped:
-        cmd2 = ["aws", "ecs", "describe-services",
-                "--cluster", args.cluster, "--services"]
-        cmd = [x for x in itertools.chain(cmd2, g)]
-        logging.debug(cmd)
-        result = None
-        try:
-            result = subprocess.run(cmd, stdout=subprocess.PIPE,
-                                    stderr=subprocess.STDOUT).stdout.decode('utf-8')
-            logging.debug(g)
-            logging.debug(result)
-            list_services_desired_tasks_json = json.loads(result)
-        except Exception as e:
-            logging.error(
-                "aws-cli error  '{}' error: {}".format(' '.join(cmd), e))
-            raise Exception
-        for x in list_services_desired_tasks_json['services']:
-            service[x['serviceName']] = str(x['desiredCount'])
-    logging.info(json.dumps(service))
-if args.stop_services or args.start_services:
-    f = args.stop_services if args.stop_services else args.start_services
-    with open(f, "r") as fp:
-        service = json.load(fp)
-    logging.debug(service)
-    for k in service.keys():
-        if service[k] == "0":
-            logging.info(
-                "skipping {} since it's at desired task 0".format(k))
-            continue
-        if args.stop_services:
-            desired_count = "0"
-        elif args.start_services:
-            desired_count = service[k]
-        cmd = ["aws", "ecs", "update-service", "--cluster",
-               args.cluster, "--service", k, "--desired-count", desired_count]
-        try:
-            result = subprocess.run(cmd, stdout=subprocess.PIPE,
-                                    stderr=subprocess.STDOUT).stdout.decode('utf-8')
-        except Exception as e:
-            logging.error(
-                "aws-cli error  '{}' error: {}".format(' '.join(cmd), e))
-            raise Exception
-        logging.info(
-            "service {} set at {} desired_count ...".format(k, desired_count))
-        time.sleep(int(args.throttle))
-if args.start_pipeline_execution:
-    f = args.start_pipeline_execution
-    with open(f, "r") as fp:
-        service = json.load(fp)
-    logging.debug(service)
-    for k in service.keys():
-        # aws codepipeline start-pipeline-execution --name MyFirstPipeline
-        cmd = ["aws", "codepipeline", "start-pipeline-execution", "--name", k, ]
-        try:
-            result = subprocess.run(cmd, stdout=subprocess.PIPE,
-                                    stderr=subprocess.STDOUT).stdout.decode('utf-8')
-        except Exception as e:
-            logging.error(
-                "aws-cli error  '{}' error: {}".format(' '.join(cmd), e))
-            raise Exception
-        logging.info(
-            "pipeline {} starting ...".format(k))
-        time.sleep(int(args.throttle))
+try:
+    args.func(args)
+except AttributeError:
+    parser.print_help(sys.stderr)
+# profile = cProfile.Profile()
+# profile.runcall(show_pipeline,args)
+# ps = pstats.Stats(profile)
+# ps.print_stats()
