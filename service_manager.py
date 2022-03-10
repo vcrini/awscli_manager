@@ -16,7 +16,22 @@ import time
 
 
 def launch(cmd):
-    return subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT).stdout.decode('utf-8')
+    def is_error(result):
+        if re.search("An error occurred", result):
+            return (True, result)
+        else:
+            return (False, None)
+
+    def raise_error(result):
+        logging.debug(result)
+        r = is_error(result)
+        if r[0]:
+            raise Exception(r[1])
+
+    result = subprocess.run(cmd, stdout=subprocess.PIPE,
+                            stderr=subprocess.STDOUT).stdout.decode('utf-8')
+    raise_error(result)
+    return result
 
 
 def print_error(cmd, result, ex):
@@ -138,6 +153,7 @@ def start_pipeline_execution(args):
         cmd = ["aws", "codepipeline", "start-pipeline-execution", "--name", k, ]
         try:
             result = launch(cmd)
+            logging.debug(result)
         except Exception as e:
             print_error(cmd, result, e)
         logging.info(
