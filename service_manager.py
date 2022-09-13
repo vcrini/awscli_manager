@@ -124,6 +124,7 @@ def stop_or_start(args):
         service = json.load(fp)
     logging.debug(service)
     for k in service.keys():
+        result = None
         if service[k] == "0":
             logging.info(
                 "skipping {} since it's at desired task 0".format(k))
@@ -161,10 +162,32 @@ def start_pipeline_execution(args):
         time.sleep(int(args.throttle))
 
 
+def disable_or_enable_stage(args):
+    f = args.value
+    action = args.action
+    with open(f, "r") as fp:
+        service = json.load(fp)
+    logging.debug(service)
+    for k in service:
+        # aws codepipeline start-pipeline-execution --name MyFirstPipeline
+        cmd = ["aws", "codepipeline", "{}-stage-transition".format(action), "--pipeline-name", k, "--stage-name", "Source", "--transition-type", "Outbound"]
+        if action == "disable":
+            cmd.extend(["--reason", "updated by service_manager.py"])
+        try:
+            result = launch(cmd)
+            logging.debug(result)
+        except Exception as e:
+            print_error(cmd, result, e)
+        logging.info(
+            "pipeline {} updating ...".format(k))
+        time.sleep(int(args.throttle))
+
 # import pdb; pdb.set_trace()
 # p = argparse.ArgumentParser(add_help=False)
 # p.add_argument('--throttle', default=0.5)
 # p.add_argument('--verbose', action='store_true', default=False)
+
+
 p2 = argparse.ArgumentParser(add_help=False)
 p2.add_argument('--cluster', required=True)
 p3 = argparse.ArgumentParser(add_help=False)
@@ -193,6 +216,10 @@ start_services_parser.set_defaults(func=stop_or_start)
 start_pipeline_execution_parser = subparsers.add_parser(
     'start-pipeline-execution', help="filename containing hash with pipeline names", parents=[p3, p2])
 start_pipeline_execution_parser.set_defaults(func=start_pipeline_execution)
+stage_parser = subparsers.add_parser('pipeline', help="disable or enable stage transition, pass a file containing list of services like [\"service1\", \"service2\"] ", parents=[p3])
+stage_parser.set_defaults(func=disable_or_enable_stage)
+stage_parser.add_argument(
+    '--action', choices=['enable', 'disable'])
 
 args = parser.parse_args()
 handler = logging.StreamHandler(sys.stdout)
@@ -209,3 +236,5 @@ except AttributeError:
 # profile.runcall(show_pipeline,args)
 # ps = pstats.Stats(profile)
 # ps.print_stats()
+# aws-vault exec  gucci-test-admin -- aws codepipeline disable-stage-transition --pipeline-name fdh-dondit --stage-name Source --transition-type Outbound --reason test
+# aws-vault exec  gucci-test-admin -- aws codepipeline enable-stage-transition --pipeline-name fdh-dondit --stage-name Source --transition-type Outbound
