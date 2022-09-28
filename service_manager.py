@@ -195,8 +195,8 @@ p2.add_argument('--cluster', required=True)
 p3 = argparse.ArgumentParser(add_help=False)
 p3.add_argument('value')
 parser = argparse.ArgumentParser()
-parser.add_argument('--throttle', default=0.5)
-parser.add_argument('--verbose', action='store_true',)
+parser.add_argument('-t', '--throttle', default=0.5)
+parser.add_argument('-v', '--verbose', action='store_true',)
 subparsers = parser.add_subparsers(
     help="desired action to perform", dest='action')
 pipeline_parser = subparsers.add_parser(
