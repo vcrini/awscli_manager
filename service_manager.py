@@ -47,12 +47,11 @@ def show_pipeline(args):
             if re.search(x, name):
                 return True
 
-    def sort_criteria(d, key):
-        return d[key]
     cmd = ["aws", "codepipeline", "list-pipelines"]
     cmd2 = None
     statuses = []
     result = None
+    deploy = None
     try:
         result = launch(cmd)
     except Exception as e:
@@ -120,6 +119,7 @@ def active_services(args):
 
 def stop_or_start(args):
     f = args.value
+    desired_count = None
     with open(f, "r") as fp:
         service = json.load(fp)
     logging.debug(service)
@@ -146,6 +146,7 @@ def stop_or_start(args):
 
 def start_pipeline_execution(args):
     f = args.value
+    result = None
     with open(f, "r") as fp:
         service = json.load(fp)
     logging.debug(service)
@@ -164,6 +165,7 @@ def start_pipeline_execution(args):
 
 def disable_or_enable_stage(args):
     f = args.value
+    result = None
     action = args.action
     with open(f, "r") as fp:
         service = json.load(fp)
